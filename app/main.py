@@ -52,7 +52,7 @@ def reload_data():
     }
 
 
-@app.post("/state/refresh")
+@app.get("/state/refresh")
 def refresh_state(state: str, days: int = 14, limit: int = 75):
     """
     Example:
@@ -86,7 +86,7 @@ def refresh_state(state: str, days: int = 14, limit: int = 75):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refresh state bills: {e}")
         
-@app.post("/federal/refresh")
+@app.get("/federal/refresh")
 def refresh_federal(days: int = 14, limit: int = 50):
     if not settings.congress_api_key:
         raise HTTPException(status_code=500, detail="CONGRESS_API_KEY is not configured.")
@@ -215,4 +215,5 @@ def chat(req: ChatRequest):
         answer=answer,
         citations=citations,
     )
+
 
