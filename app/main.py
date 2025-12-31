@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
+from .ingest_congress import fetch_recent_federal_bills
 from .config import settings
 from .models import ChatRequest, ChatResponse, Candidate
 from .retrieval_multi import load_multi_index
@@ -85,6 +85,22 @@ def refresh_state(state: str, days: int = 14, limit: int = 75):
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refresh state bills: {e}")
+        
+@app.post("/federal/refresh")
+def refresh_federal(days: int = 14, limit: int = 50):
+    if not settings.congress_api_key:
+        raise HTTPException(status_code=500, detail="CONGRESS_API_KEY is not configured.")
+
+    try:
+        docs = fetch_recent_federal_bills(days=days, limit=limit)
+        added = append_to_jsonl(settings.data_path_fed, docs)
+
+        global multi
+        multi = load_multi_index(settings.data_path_fed, settings.data_path_state)
+
+        return {"ok": True, "fetched": len(docs), "added": added, "federal_loaded": len(multi.fed.bills)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh federal bills: {e}")
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -199,3 +215,4 @@ def chat(req: ChatRequest):
         answer=answer,
         citations=citations,
     )
+
