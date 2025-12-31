@@ -20,3 +20,5 @@ def load_multi_index(path_fed: str, path_state: str) -> MultiIndex:
         fed=HybridBillIndex(fed_docs),
         state=HybridBillIndex(state_docs),
     )
+print(f"Loaded {len(fed_docs)} federal bills")
+print(f"Loaded {len(state_docs)} state bills")
