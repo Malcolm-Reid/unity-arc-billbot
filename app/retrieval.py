@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 from rank_bm25 import BM25Okapi
 import faiss
-from sentence_transformers import SentenceTransformer
+
 
 from .models import BillDoc
 from .slang import normalize_query
@@ -62,39 +62,44 @@ class HybridBillIndex:
     """
     Hybrid search index:
     - BM25 keyword matching
-    - Semantic vector similarity (FAISS)
+    - Semantic vector similarity (FAISS) (lazy-loaded)
     """
 
     def __init__(
         self,
         bills: List[BillDoc],
         model_name: str = "all-MiniLM-L6-v2",
+        enable_embeddings: bool = False,  # <-- important: default OFF for stability
     ):
         self.bills = bills
-        self.embedder = SentenceTransformer(model_name)
+        self.model_name = model_name
+        self.enable_embeddings = enable_embeddings
 
+        # Build text corpus
         self.texts = [_safe_text(b) for b in bills]
         self.tokenized = [t.split() for t in self.texts]
 
         self.bm25 = BM25Okapi(self.tokenized) if bills else None
+
+        # Embedding/FAISS pieces (only created if enabled AND we have bills)
+        self.embedder = None
         self.embeddings = None
         self.faiss_index = None
 
-        if bills:
+        if self.enable_embeddings and bills:
             self._build_vector_index()
 
-    def _build_vector_index(self):
-        """
-        Build the FAISS vector index from bill text.
-        """
-        embeddings = self.embedder.encode(
-            self.texts,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )
 
-        embeddings = np.asarray(embeddings, dtype=np.float32)
-        self.embeddings = embeddings
+    def _build_vector_index(self):
+    from sentence_transformers import SentenceTransformer
+    self.embedder = SentenceTransformer(self.model_name)
+
+    embeddings = self.embedder.encode(
+        self.texts,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+
 
         dim = embeddings.shape[1]
         index = faiss.IndexFlatIP(dim)
@@ -156,3 +161,4 @@ class HybridBillIndex:
             SearchResult(self.bills[i], float(blended_scores[i]))
             for i in top_indices
         ]
+
