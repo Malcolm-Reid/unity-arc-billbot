@@ -17,8 +17,6 @@ def load_multi_index(path_fed: str, path_state: str) -> MultiIndex:
     state_docs: list[BillDoc] = load_bills_jsonl(path_state)
 
     return MultiIndex(
-       fed=HybridBillIndex(fed_docs, enable_embeddings=False),
-       state=HybridBillIndex(state_docs, enable_embeddings=False),
-
+        fed=HybridBillIndex(fed_docs),
+        state=HybridBillIndex(state_docs),
     )
-
