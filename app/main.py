@@ -13,9 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(
     allowed_origins = [
     "https://malcolm-reid.github.io",
-    "https://www.unityarcadvocacy.com",
-    "https://unityarcadvocacy.com",
+    "https://malcolm-reid.github.io/unity-arc-billbot",
+    "https://unity-arc-billbot-production.up.railway.app"
 ]
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -262,4 +263,5 @@ def chat(req: ChatRequest):
         answer=answer,
         citations=citations,
     )
+
 
