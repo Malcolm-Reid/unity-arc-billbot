@@ -7,41 +7,83 @@
     body {
       font-family: Arial, sans-serif;
       background: #f7f7f7;
+      margin: 0;
+      padding: 16px;
     }
     #billbot {
       width: 100%;
-      max-width: 420px;
+      max-width: 460px;
       border: 1px solid #ccc;
-      border-radius: 8px;
+      border-radius: 10px;
       background: #fff;
-      padding: 10px;
+      padding: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+    h3 {
+      margin: 6px 0 10px 0;
+      font-size: 18px;
     }
     #messages {
-      height: 300px;
+      height: 320px;
       overflow-y: auto;
       border: 1px solid #ddd;
-      padding: 8px;
+      padding: 10px;
       margin-bottom: 10px;
       font-size: 14px;
+      border-radius: 8px;
+      background: #fafafa;
     }
     .user {
       font-weight: bold;
-      margin-top: 6px;
+      margin-top: 10px;
+      white-space: pre-wrap;
     }
     .bot {
-      margin-left: 10px;
-      margin-bottom: 6px;
+      margin-left: 8px;
+      margin-bottom: 8px;
+      white-space: pre-wrap;
+    }
+    .hint {
+      color: #555;
+      font-size: 12px;
+      margin-bottom: 10px;
     }
     #inputRow {
       display: flex;
-      gap: 6px;
+      gap: 8px;
     }
     input {
       flex: 1;
-      padding: 6px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
     }
     button {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #222;
+      background: #111;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 6px 0 10px 0;
+    }
+    .chip {
+      border: 1px solid #aaa;
+      background: #fff;
+      border-radius: 999px;
       padding: 6px 10px;
+      font-size: 12px;
       cursor: pointer;
     }
   </style>
@@ -49,97 +91,103 @@
 <body>
   <div id="billbot">
     <h3>🧾 Ask BillBot</h3>
+    <div class="hint">
+      Tip: You can say what you heard on the news or social media — even if you don’t know the bill number.
+    </div>
+
     <div id="messages"></div>
+
+    <div class="chips" id="quickChips" style="display:none;"></div>
 
     <div id="inputRow">
       <input id="question" placeholder="Ask about a bill or law…" />
-      <button onclick="ask()">Send</button>
+      <button id="sendBtn" onclick="ask()">Send</button>
     </div>
   </div>
 
   <script>
-  const API_URL = "https://unity-arc-billbot-production.up.railway.app/chat";
+    // IMPORTANT: Your backend endpoint
+    const API_URL = "https://unity-arc-billbot-production.up.railway.app/ask";
 
-  const messages = document.getElementById("messages");
-  const input = document.getElementById("question");
+    const messages = document.getElementById("messages");
+    const input = document.getElementById("question");
+    const sendBtn = document.getElementById("sendBtn");
+    const quickChips = document.getElementById("quickChips");
 
-  // Conversation state the widget remembers
-  let state = {
-    jurisdiction: "unknown", // "federal" | "state" | "unknown"
-    stateCode: null          // e.g., "GA"
-  };
+    // Conversation memory (persists while the page is open)
+    const ctx = {
+      jurisdiction: "unknown",  // "federal" | "state" | "unknown"
+      stateCode: null,          // "GA", "NY", etc
+      mode: null                // "triage" | "state_for_compare" | null
+    };
 
-  // If the bot asked a clarification question, we remember what type it was
-  let pendingClarification = null; // "jurisdiction" | "state" | null
+    // Store the user's last "real question" so we can auto-resend after triage
+    let lastRealQuestion = null;
 
-  function addMessage(text, cls) {
-    const div = document.createElement("div");
-    div.className = cls;
-    div.textContent = text;
-    messages.appendChild(div);
-    messages.scrollTop = messages.scrollHeight;
-  }
-
-  function normalizeJurisdiction(userText) {
-    const t = userText.trim().toLowerCase();
-    if (t === "federal" || t === "federal (congress)" || t.includes("congress")) return "federal";
-    if (t === "my state" || t === "state") return "state";
-    return null;
-  }
-
-  function normalizeStateCode(userText) {
-    const t = userText.trim();
-    // Accept 2-letter codes like GA, NY
-    if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase();
-    // If user types a full state name, we don't attempt to map in this MVP
-    return null;
-  }
-
-  async function ask() {
-    const q = input.value;
-    if (!q) return;
-
-    addMessage("You: " + q, "user");
-    input.value = "";
-
-    // If the bot is waiting for a clarification, handle it locally first
-    if (pendingClarification === "jurisdiction") {
-      const j = normalizeJurisdiction(q);
-      if (j) {
-        state.jurisdiction = j;
-        pendingClarification = (j === "state" && !state.stateCode) ? "state" : null;
-
-        if (pendingClarification === "state") {
-          addMessage("BillBot: Which state? Please type the 2-letter code (example: GA, NY).", "bot");
-          return;
-        }
-
-        addMessage("BillBot: Got it. Now ask your question again (or add one more clue).", "bot");
-        return;
-      }
-      // If user didn't give a recognizable jurisdiction, keep asking
-      addMessage("BillBot: Please answer with “Federal (Congress)” or “My State”.", "bot");
-      return;
+    function addMessage(text, cls) {
+      const div = document.createElement("div");
+      div.className = cls;
+      div.textContent = text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
     }
 
-    if (pendingClarification === "state") {
-      const code = normalizeStateCode(q);
-      if (code) {
-        state.stateCode = code;
-        pendingClarification = null;
-        addMessage("BillBot: Great. Now ask your question again (or add one more clue).", "bot");
+    function showChips(options, onClick) {
+      quickChips.innerHTML = "";
+      if (!options || !options.length) {
+        quickChips.style.display = "none";
         return;
       }
-      addMessage("BillBot: Please type a 2-letter state code like GA or NY.", "bot");
-      return;
+      quickChips.style.display = "flex";
+      options.forEach(opt => {
+        const b = document.createElement("button");
+        b.className = "chip";
+        b.textContent = opt;
+        b.onclick = () => onClick(opt);
+        quickChips.appendChild(b);
+      });
     }
 
-    // Normal request to backend
-    try {
+    function hideChips() {
+      quickChips.style.display = "none";
+      quickChips.innerHTML = "";
+    }
+
+    function normalizeTriageAnswer(text) {
+      const t = (text || "").trim();
+      if (!t) return null;
+
+      const upper = t.toUpperCase();
+
+      // US / Federal
+      if (upper === "US" || upper === "USA" || upper.includes("CONGRESS") || upper.includes("FEDERAL")) {
+        return { type: "us" };
+      }
+
+      // Not sure
+      if (upper === "NOT SURE" || upper === "NOT_SURE" || upper === "UNSURE") {
+        return { type: "not_sure" };
+      }
+
+      // 2-letter state
+      if (/^[A-Z]{2}$/.test(upper)) {
+        return { type: "state", value: upper };
+      }
+
+      return null;
+    }
+
+    function normalizeStateCode(text) {
+      const t = (text || "").trim().toUpperCase();
+      if (/^[A-Z]{2}$/.test(t)) return t;
+      return null;
+    }
+
+    async function sendToAPI(message) {
       const payload = {
-        message: q,
-        jurisdiction: state.jurisdiction,
-        state: state.stateCode,
+        message,
+        jurisdiction: ctx.jurisdiction,
+        state: ctx.stateCode,
         top_k: 5
       };
 
@@ -149,35 +197,180 @@
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
-
-      if (data.needs_clarification) {
-        addMessage("BillBot: " + (data.clarification_question || "I need one more detail."), "bot");
-
-        // Detect what kind of clarification is needed
-        const cq = (data.clarification_question || "").toLowerCase();
-        if (cq.includes("federal") && cq.includes("state")) {
-          pendingClarification = "jurisdiction";
-        } else if (cq.includes("which state")) {
-          pendingClarification = "state";
-        }
-
-        if (data.clarification_options && data.clarification_options.length) {
-          addMessage("Options: " + data.clarification_options.join(" | "), "bot");
-        }
-      } else {
-        addMessage("BillBot: " + (data.answer || "No answer returned."), "bot");
+      // If API returns non-200, show something helpful
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`API error ${res.status}: ${txt}`);
       }
-    } catch (e) {
-      addMessage("BillBot: Sorry, something went wrong.", "bot");
+
+      return await res.json();
     }
-  }
 
-  // Allow Enter key to send
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") ask();
-  });
-</script>
+    async function ask() {
+      const q = input.value;
+      if (!q) return;
 
+      addMessage("You: " + q, "user");
+      input.value = "";
+      hideChips();
+
+      // If the bot previously asked a triage question, handle user's response locally
+      if (ctx.mode === "triage") {
+        const parsed = normalizeTriageAnswer(q);
+
+        if (!parsed) {
+          addMessage("BillBot: Please type a 2-letter state code (like GA), or type US, or Not sure.", "bot");
+          showChips(["US", "Not sure", "GA", "NY", "CA"], (opt) => {
+            input.value = opt;
+            ask();
+          });
+          return;
+        }
+
+        if (parsed.type === "us") {
+          ctx.jurisdiction = "federal";
+          ctx.stateCode = null;
+          ctx.mode = null;
+
+          addMessage("BillBot: Got it — **US (Congress/federal)**. I’m checking now…", "bot");
+
+          // Auto-resend the user's original question
+          if (lastRealQuestion) {
+            await runQuestion(lastRealQuestion);
+          } else {
+            addMessage("BillBot: Now ask your question.", "bot");
+          }
+          return;
+        }
+
+        if (parsed.type === "state") {
+          ctx.jurisdiction = "state";
+          ctx.stateCode = parsed.value;
+          ctx.mode = null;
+
+          addMessage(`BillBot: Got it — **${ctx.stateCode}**. I’m checking now…`, "bot");
+
+          if (lastRealQuestion) {
+            await runQuestion(lastRealQuestion);
+          } else {
+            addMessage("BillBot: Now ask your question.", "bot");
+          }
+          return;
+        }
+
+        if (parsed.type === "not_sure") {
+          // We’ll do the bot’s “decide” mode, but we still need a state to compare against
+          ctx.jurisdiction = "unknown";
+          ctx.stateCode = null;
+          ctx.mode = "state_for_compare";
+
+          addMessage("BillBot: No problem. Which state should I also check? (Example: GA, NY, CA)", "bot");
+          showChips(["GA", "NY", "CA", "TX", "FL"], (opt) => {
+            input.value = opt;
+            ask();
+          });
+          return;
+        }
+      }
+
+      // If we asked for a state to compare after "Not sure"
+      if (ctx.mode === "state_for_compare") {
+        const st = normalizeStateCode(q);
+        if (!st) {
+          addMessage("BillBot: Please type a 2-letter state code like GA or NY.", "bot");
+          showChips(["GA", "NY", "CA", "TX", "FL"], (opt) => {
+            input.value = opt;
+            ask();
+          });
+          return;
+        }
+
+        // Now we provide a state anchor; backend can compare federal vs that state
+        ctx.stateCode = st;
+        ctx.jurisdiction = "unknown"; // key: tells backend "decide"
+        ctx.mode = null;
+
+        addMessage(`BillBot: Got it — I’ll compare **US vs ${ctx.stateCode}** and pick the best match…`, "bot");
+
+        if (lastRealQuestion) {
+          await runQuestion(lastRealQuestion);
+        } else {
+          addMessage("BillBot: Now ask your question.", "bot");
+        }
+        return;
+      }
+
+      // Normal flow: treat this as the user's real question
+      lastRealQuestion = q;
+      await runQuestion(q);
+    }
+
+    async function runQuestion(q) {
+      try {
+        sendBtn.disabled = true;
+
+        const data = await sendToAPI(q);
+
+        // If the backend needs clarification, we update ctx.mode so the next user message is interpreted
+        if (data.needs_clarification) {
+          const prompt = data.answer || data.clarification_question || "I need one more detail.";
+          addMessage("BillBot: " + prompt, "bot");
+
+          // If the API is asking our triage question, set triage mode
+          const lower = (prompt || "").toLowerCase();
+          if (lower.includes("what state are you asking about") || lower.includes("state are you asking about")) {
+            ctx.mode = "triage";
+            showChips(["US", "Not sure", "GA", "NY", "CA"], (opt) => {
+              input.value = opt;
+              ask();
+            });
+            return;
+          }
+
+          // If it asks for a state code explicitly
+          if (lower.includes("which state") || lower.includes("state code")) {
+            ctx.mode = "state_for_compare";
+            showChips(["GA", "NY", "CA", "TX", "FL"], (opt) => {
+              input.value = opt;
+              ask();
+            });
+            return;
+          }
+
+          // If it provides options, show them as chips
+          if (data.options && Array.isArray(data.options) && data.options.length) {
+            showChips(data.options.slice(0, 6), (opt) => {
+              input.value = opt;
+              ask();
+            });
+          }
+
+          return;
+        }
+
+        // Normal answer
+        addMessage("BillBot: " + (data.answer || "No answer returned."), "bot");
+
+        // If candidates exist, display the top few titles for transparency
+        if (data.candidates && Array.isArray(data.candidates) && data.candidates.length) {
+          const top = data.candidates.slice(0, 3).map((c, i) => `${i + 1}. ${c.title}`).join("\n");
+          addMessage("Top matches:\n" + top, "bot");
+        }
+
+      } catch (e) {
+        addMessage("BillBot: Sorry — I hit an error. (" + e.message + ")", "bot");
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    // Enter key sends message
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") ask();
+    });
+
+    // Optional: greet user
+    addMessage("BillBot: Ask me about a bill you heard about. If you don’t know if it’s federal or state, that’s okay.", "bot");
+  </script>
 </body>
 </html>
