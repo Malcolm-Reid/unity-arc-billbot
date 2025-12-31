@@ -58,45 +58,126 @@
   </div>
 
   <script>
-    const API_URL = "https://unity-arc-billbot-production.up.railway.app/chat";
+  const API_URL = "https://unity-arc-billbot-production.up.railway.app/chat";
 
-    const messages = document.getElementById("messages");
+  const messages = document.getElementById("messages");
+  const input = document.getElementById("question");
 
-    function addMessage(text, cls) {
-      const div = document.createElement("div");
-      div.className = cls;
-      div.textContent = text;
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
-    }
+  // Conversation state the widget remembers
+  let state = {
+    jurisdiction: "unknown", // "federal" | "state" | "unknown"
+    stateCode: null          // e.g., "GA"
+  };
 
-    async function ask() {
-      const q = document.getElementById("question").value;
-      if (!q) return;
+  // If the bot asked a clarification question, we remember what type it was
+  let pendingClarification = null; // "jurisdiction" | "state" | null
 
-      addMessage("You: " + q, "user");
-      document.getElementById("question").value = "";
-
-      try {
-        const res = await fetch(API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: q, jurisdiction: "unknown", top_k: 5 })
-        });
-        const data = await res.json();
-       if (data.needs_clarification) {
-  addMessage("BillBot: " + (data.clarification_question || "I need one more detail."), "bot");
-  if (data.clarification_options && data.clarification_options.length) {
-    addMessage("Options: " + data.clarification_options.join(" | "), "bot");
+  function addMessage(text, cls) {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
   }
-} else {
-  addMessage("BillBot: " + (data.answer || "No answer returned."), "bot");
-}
 
-      } catch (e) {
-        addMessage("BillBot: Sorry, something went wrong.", "bot");
+  function normalizeJurisdiction(userText) {
+    const t = userText.trim().toLowerCase();
+    if (t === "federal" || t === "federal (congress)" || t.includes("congress")) return "federal";
+    if (t === "my state" || t === "state") return "state";
+    return null;
+  }
+
+  function normalizeStateCode(userText) {
+    const t = userText.trim();
+    // Accept 2-letter codes like GA, NY
+    if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase();
+    // If user types a full state name, we don't attempt to map in this MVP
+    return null;
+  }
+
+  async function ask() {
+    const q = input.value;
+    if (!q) return;
+
+    addMessage("You: " + q, "user");
+    input.value = "";
+
+    // If the bot is waiting for a clarification, handle it locally first
+    if (pendingClarification === "jurisdiction") {
+      const j = normalizeJurisdiction(q);
+      if (j) {
+        state.jurisdiction = j;
+        pendingClarification = (j === "state" && !state.stateCode) ? "state" : null;
+
+        if (pendingClarification === "state") {
+          addMessage("BillBot: Which state? Please type the 2-letter code (example: GA, NY).", "bot");
+          return;
+        }
+
+        addMessage("BillBot: Got it. Now ask your question again (or add one more clue).", "bot");
+        return;
       }
+      // If user didn't give a recognizable jurisdiction, keep asking
+      addMessage("BillBot: Please answer with “Federal (Congress)” or “My State”.", "bot");
+      return;
     }
-  </script>
+
+    if (pendingClarification === "state") {
+      const code = normalizeStateCode(q);
+      if (code) {
+        state.stateCode = code;
+        pendingClarification = null;
+        addMessage("BillBot: Great. Now ask your question again (or add one more clue).", "bot");
+        return;
+      }
+      addMessage("BillBot: Please type a 2-letter state code like GA or NY.", "bot");
+      return;
+    }
+
+    // Normal request to backend
+    try {
+      const payload = {
+        message: q,
+        jurisdiction: state.jurisdiction,
+        state: state.stateCode,
+        top_k: 5
+      };
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (data.needs_clarification) {
+        addMessage("BillBot: " + (data.clarification_question || "I need one more detail."), "bot");
+
+        // Detect what kind of clarification is needed
+        const cq = (data.clarification_question || "").toLowerCase();
+        if (cq.includes("federal") && cq.includes("state")) {
+          pendingClarification = "jurisdiction";
+        } else if (cq.includes("which state")) {
+          pendingClarification = "state";
+        }
+
+        if (data.clarification_options && data.clarification_options.length) {
+          addMessage("Options: " + data.clarification_options.join(" | "), "bot");
+        }
+      } else {
+        addMessage("BillBot: " + (data.answer || "No answer returned."), "bot");
+      }
+    } catch (e) {
+      addMessage("BillBot: Sorry, something went wrong.", "bot");
+    }
+  }
+
+  // Allow Enter key to send
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") ask();
+  });
+</script>
+
 </body>
 </html>
