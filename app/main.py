@@ -10,8 +10,9 @@ from .ingest_openstates import fetch_recent_state_bills, append_to_jsonl
 
 app = FastAPI(
     title="Unity Arc Political Education BillBot",
-    version="0.3.0"
+    version="0.3.0",
 )
+
 
 # Allow browser-based widgets (GitHub Pages + Squarespace) to call the API
 allowed_origins = [
@@ -265,6 +266,7 @@ def chat(req: ChatRequest):
         answer=answer,
         citations=citations,
     )
+
 
 
 
