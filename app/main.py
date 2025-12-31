@@ -7,16 +7,18 @@ from .retrieval_multi import load_multi_index
 from .llm import make_plain_english_answer
 from .slang import normalize_query
 from .ingest_openstates import fetch_recent_state_bills, append_to_jsonl
-from fastapi.middleware.cors import CORSMiddleware
-
 
 app = FastAPI(
-    allowed_origins = [
-    "https://malcolm-reid.github.io",
-    "https://malcolm-reid.github.io/unity-arc-billbot",
-    "https://unity-arc-billbot-production.up.railway.app"
-]
+    title="Unity Arc Political Education BillBot",
+    version="0.3.0"
+)
 
+# Allow browser-based widgets (GitHub Pages + Squarespace) to call the API
+allowed_origins = [
+    "https://malcolm-reid.github.io",
+    "https://www.unityarcadvocacy.com",
+    "https://unityarcadvocacy.com",
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -263,5 +265,6 @@ def chat(req: ChatRequest):
         answer=answer,
         citations=citations,
     )
+
 
 
