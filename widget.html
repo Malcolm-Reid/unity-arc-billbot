@@ -81,10 +81,18 @@
         const res = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: q })
+          body: JSON.stringify({ message: q, jurisdiction: "unknown", top_k: 5 })
         });
         const data = await res.json();
-        addMessage("BillBot: " + data.answer, "bot");
+       if (data.needs_clarification) {
+  addMessage("BillBot: " + (data.clarification_question || "I need one more detail."), "bot");
+  if (data.clarification_options && data.clarification_options.length) {
+    addMessage("Options: " + data.clarification_options.join(" | "), "bot");
+  }
+} else {
+  addMessage("BillBot: " + (data.answer || "No answer returned."), "bot");
+}
+
       } catch (e) {
         addMessage("BillBot: Sorry, something went wrong.", "bot");
       }
