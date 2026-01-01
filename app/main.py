@@ -1,4 +1,6 @@
 from __future__ import annotations
+from .ingest_congress import refresh_federal_jsonl
+from .ingest_openstates import refresh_state_jsonl
 
 import json
 import os
@@ -163,6 +165,29 @@ app = FastAPI(
     title="Unity Arc Political Education BillBot",
     version="0.4.0",
 )
+
+@app.post("/admin/refresh")
+def admin_refresh(scope: str = "all", state: str = "GA", limit: int = 50, congress: int = 118):
+    """
+    scope: all | fed | state
+    state: two-letter code (GA, CA, NY, etc.) used when scope includes state
+    """
+    results = {}
+
+    if scope in ("all", "fed"):
+        n = refresh_federal_jsonl(settings.data_path_fed, limit=limit, congress=congress)
+        results["fed_written"] = n
+
+    if scope in ("all", "state"):
+        n = refresh_state_jsonl(settings.data_path_state, state=state, limit=limit)
+        results["state_written"] = n
+
+    # IMPORTANT: if your app loads indexes at startup only,
+    # you must also reload them here, otherwise it will still search old empty data.
+    global multi
+    multi = load_multi_index(settings.data_path_fed, settings.data_path_state)
+
+    return {"ok": True, "results": results}
 
 # CORS (so GitHub Pages + Squarespace can call the API)
 allowed_origins = [
@@ -398,3 +423,4 @@ def refresh_state(state: str, days: int = 30, limit: int = 100):
         "federal_loaded": len(MULTI.federal_docs),
         "state_loaded": len(MULTI.state_docs),
     }
+
